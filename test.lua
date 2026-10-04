@@ -1,23 +1,3 @@
---!strict
--- LarpingHubUI
--- Faithful UI extraction of the original script's visual/UI layer.
--- Includes:
---   * Main Larping Hub window
---   * 5-tab sidebar (Overview / Settings / Keybinds / Miscs / Support)
---   * Target HUD
---   * FPS / Ping / Kills / Low HP stats sidebar
---   * Notifications
---   * Loading screen + progress API
---   * Generic confirmation modal
---   * Dragging, resizing, hover/pulse effects, keybind capture
---
--- Intentionally removed from the original:
---   * Discord URLs / invite links
---   * Webhook URLs / execution logging
---   * Remote Loading.lua fetching
---   * Gameplay/targeting/fling/recovery implementation
---
--- Gameplay features are exposed as callbacks so the UI can live in a repo as a reusable ModuleScript.
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -61,11 +41,10 @@ local SOUNDS = {
 }
 
 local DEFAULT_KEYBINDS = {
-    Stop = "O", CancelQ = "C", Recovery = "M",
-    Q = nil, QAlt1 = "One", QAlt2 = "Two", QAlt3 = "Three", QAlt4 = "Four",
-    Camera = "K", Sidebar = "N", VCycle = "V", Prediction = "P",
+    Stop = "O", CancelQ = "C",     Q = nil, QAlt1 = "One", QAlt2 = "Two", QAlt3 = "Three", QAlt4 = "Four",
+    Camera = "K", Sidebar = "N", VCycle = "V",
     InstantInteract = "I", Smart = "Y", Position = "U",
-    RecoveryOnAttack = "J", HUD = "H", PreviousTarget = "E",
+    HUD = "H", PreviousTarget = "E",
     CycleTarget = "R", ClearTarget = "T", HoldBack = "Five",
     LockOn = nil, FlingTarget = nil, ToggleWalkFling = nil,
     Respawn = nil, ResetDefaults = nil,
@@ -80,12 +59,10 @@ local KEYBIND_ORDER = {
     { "QAlt3", "Q ALT 3" }, { "QAlt4", "Q ALT 4" },
     { "LockOn", "TOGGLE LOCK-ON" }, { "FlingTarget", "FLING TARGET" },
     { "ToggleWalkFling", "TOGGLE WALKFLING" }, { "Respawn", "FORCE RESPAWN" },
-    { "ResetDefaults", "RESET TO DEFAULT" }, { "Stop", "STOP" },
-    { "CancelQ", "CANCEL Q" }, { "Recovery", "RECOVERY" },
-    { "Camera", "CAMERA" }, { "Sidebar", "SIDEBAR" }, { "VCycle", "V CYCLE" },
-    { "Prediction", "PREDICTION" }, { "InstantInteract", "INSTANT INTERACT" },
-    { "Smart", "SMART" }, { "Position", "POSITION" },
-    { "RecoveryOnAttack", "RECOVERY ON ATTACK" }, { "HUD", "HUD" },
+    { "ResetDefaults", "RESET TO DEFAULT" }, { "Stop", "STOP SCRIPT" },
+    { "CancelQ", "CANCEL Q" }, { "Camera", "CAMERA" }, { "Sidebar", "SIDEBAR" },
+    { "VCycle", "V CYCLE" }, { "InstantInteract", "INSTANT INTERACT" },
+    { "Smart", "SMART" }, { "Position", "POSITION" }, { "HUD", "HUD" },
     { "PreviousTarget", "PREV TARGET" }, { "CycleTarget", "CYCLE TARGET" },
     { "ClearTarget", "CLEAR TARGET" }, { "HoldBack", "HOLD BACK" },
 }
@@ -136,14 +113,10 @@ local DEFAULTS = {
         ["Auto Q (Finisher)"] = false,
         ["Smart Targeting"] = true,
         ["Smart Position"] = true,
-        ["Smart Recovery"] = true,
-        ["Adaptive Prediction"] = true,
         ["Victim Camera"] = true,
         ["HUD"] = true,
         ["Sidebar"] = true,
-        ["Prediction"] = true,
         ["Instant Interact"] = true,
-        ["Recovery on Attack"] = true,
         ["Anti Fling / Anti Void"] = true,
         ["Enable Walkfling"] = false,
         ["No Block Animation"] = false,
@@ -159,6 +132,7 @@ local DEFAULTS = {
     OnKeybindChanged = nil,
     OnDiscord = nil,
     OnFeedback = nil,
+    OnUpdateRequest = nil,
     OnFling = nil,
     OnRespawn = nil,
     OnStop = nil,
@@ -354,7 +328,7 @@ function UI:Notify(titleOrMessage, description, durationOrOptions)
     }, holder)
     table.insert(self._notifications, frame)
 
-    create("UIStroke", { Color = accent, Thickness = 1.5, Transparency = 0.15 }, frame)
+    create("UIStroke", { Color = accent, Thickness = 1, Transparency = 0.15 }, frame)
     create("Frame", { Name = "Accent", Size = UDim2.new(0, 4, 1, 0), BackgroundColor3 = accent, BorderSizePixel = 0 }, frame)
     create("TextLabel", {
         Name = "Title", Position = UDim2.fromOffset(16, 9), Size = UDim2.new(1, -28, 0, 20),
@@ -516,17 +490,18 @@ function UI:_makeTab(sidebar, textValue, order)
         BorderSizePixel = 0,
         Text = "",
         AutoButtonColor = false,
-        ZIndex = 7,
+        ZIndex = 20,
+        Active = true,
     }, sidebar)
     local stroke = create("UIStroke", { Color = PX.lineSoft, Thickness = 1 }, button)
     local accentBar = create("Frame", {
         Name = "AccentBar", Size = UDim2.new(0, 4, 1, 0), BackgroundColor3 = PX.accent,
-        BorderSizePixel = 0, BackgroundTransparency = 1,
+        BorderSizePixel = 0, BackgroundTransparency = 1, ZIndex = 21,
     }, button)
     local label = create("TextLabel", {
         Name = "TabLabel", Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(14, 0),
         BackgroundTransparency = 1, Text = textValue, TextColor3 = PX.dim, TextSize = 14, Font = FONT_TITLE,
-        TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center,
+        TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center, ZIndex = 21,
     }, button)
 
     local base = PX.bg
@@ -720,23 +695,34 @@ function UI:_buildHub()
         AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = PX.bg, BorderSizePixel = 0, ClipsDescendants = false,
     }, gui)
     self.HubMain = main
-    create("UIStroke", { Color = PX.line, Thickness = 2 }, main)
+    create("UIStroke", { Color = PX.line, Thickness = 1 }, main)
 
     local header = create("Frame", { Size = UDim2.new(1, 0, 0, 56), BackgroundColor3 = PX.bgMid, BorderSizePixel = 0 }, main)
     create("Frame", { Size = UDim2.new(1, 0, 0, 2), Position = UDim2.new(0, 0, 1, -2), BackgroundColor3 = PX.line, BorderSizePixel = 0 }, header)
     create("Frame", { Size = UDim2.fromOffset(4, 34), Position = UDim2.new(0, 12, 0.5, -17), BackgroundColor3 = PX.accent, BorderSizePixel = 0 }, header)
     create("TextLabel", {
-        BackgroundTransparency = 1, Size = UDim2.new(1, -160, 0, 22), Position = UDim2.fromOffset(26, 8),
+        BackgroundTransparency = 1, Size = UDim2.new(1, -250, 0, 22), Position = UDim2.fromOffset(26, 8),
         Text = self.Options.Title, TextColor3 = PX.text, TextSize = 18, Font = FONT_TITLE, TextXAlignment = Enum.TextXAlignment.Left,
     }, header)
     create("TextLabel", {
-        BackgroundTransparency = 1, Size = UDim2.new(1, -160, 0, 16), Position = UDim2.fromOffset(26, 31),
+        BackgroundTransparency = 1, Size = UDim2.new(1, -250, 0, 16), Position = UDim2.fromOffset(26, 31),
         Text = self.Options.Subtitle, TextColor3 = PX.dim, TextSize = 12, Font = FONT_BODY, TextXAlignment = Enum.TextXAlignment.Left,
     }, header)
     create("TextLabel", {
         BackgroundTransparency = 1, Size = UDim2.fromOffset(70, 20), Position = UDim2.new(1, -110, 0, 9),
         Text = self.Options.LiveText, TextColor3 = PX.accent, TextSize = 12, Font = FONT_BODY, TextXAlignment = Enum.TextXAlignment.Right,
     }, header)
+
+    local stop = self:CreateButton(header, {
+        Name = "StopScript", Size = UDim2.fromOffset(112, 30), Position = UDim2.new(1, -160, 0, 13),
+        Text = "STOP SCRIPT", TextColor3 = PX.bad, TextSize = 12, Font = FONT_TITLE,
+        BackgroundColor3 = PX.bgLight, StrokeColor = PX.bad, StrokeTransparency = 0.15,
+        HoverColor = liftColor(PX.bgLight, 24),
+        Callback = function()
+            self:StopScript()
+        end,
+    })
+    stop.ZIndex = 20
 
     local close = self:CreateButton(header, {
         Name = "Close", Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -42, 0, 13),
@@ -748,19 +734,22 @@ function UI:_buildHub()
             self:_playSound(SOUNDS.Close, 0.5, 1)
         end,
     })
-    close.ZIndex = 10
+    close.ZIndex = 20
 
     local sidebar = create("Frame", {
         Name = "Sidebar", Size = UDim2.new(0, self.Options.SidebarWidth, 1, -56), Position = UDim2.fromOffset(0, 56),
-        BackgroundColor3 = PX.bgMid, BorderSizePixel = 0, ZIndex = 5,
+        BackgroundColor3 = PX.bgMid, BorderSizePixel = 0, ZIndex = 10, ClipsDescendants = true,
     }, main)
-    create("Frame", { Size = UDim2.new(0, 2, 1, 0), Position = UDim2.new(1, -2, 0, 0), BackgroundColor3 = PX.line, BorderSizePixel = 0 }, sidebar)
-    create("UIPadding", { PaddingTop = UDim.new(0, 14), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 12) }, sidebar)
+    create("Frame", {
+        Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, -1, 0, 0),
+        BackgroundColor3 = PX.line, BorderSizePixel = 0, ZIndex = 11,
+    }, sidebar)
+    create("UIPadding", { PaddingTop = UDim.new(0, 14), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, sidebar)
     create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, sidebar)
 
     local content = create("Frame", {
         Name = "Content", Size = UDim2.new(1, -self.Options.SidebarWidth, 1, -56), Position = UDim2.new(0, self.Options.SidebarWidth, 0, 56),
-        BackgroundColor3 = PX.bg, BorderSizePixel = 0,
+        BackgroundColor3 = PX.bg, BorderSizePixel = 0, ZIndex = 1, ClipsDescendants = true,
     }, main)
 
     local tabs = {}
@@ -779,8 +768,6 @@ function UI:_buildHub()
         Miscs = self:_makePage(content), Support = self:_makePage(content),
     }
     self._pages = pages
-
-    -- Overview
     self:_sectionLabel(pages.Main, "ABOUT")
     self:_infoCard(pages.Main, self.Options.Overview.ThanksTitle, self.Options.Overview.ThanksDescription)
     self:_infoCard(pages.Main, self.Options.Overview.ToggleTitle, self.Options.Overview.ToggleDescription)
@@ -796,8 +783,6 @@ function UI:_buildHub()
             if type(self.Options.OnDiscord) == "function" then pcall(self.Options.OnDiscord, self) end
         end,
     })
-
-    -- Settings
     self:_sectionLabel(pages.Settings, "COMBAT")
     for _, name in ipairs({
         "Under Victim (recommended)", "Lock-On / Follow",
@@ -808,8 +793,8 @@ function UI:_buildHub()
 
     self:_sectionLabel(pages.Settings, "BEHAVIOR")
     for _, name in ipairs({
-        "Smart Targeting", "Smart Position", "Smart Recovery", "Adaptive Prediction", "Victim Camera",
-        "HUD", "Sidebar", "Prediction", "Instant Interact", "Recovery on Attack",
+        "Smart Targeting", "Smart Position", "Victim Camera",
+        "HUD", "Sidebar", "Instant Interact",
     }) do
         self:_makeToggle(pages.Settings, name, self.State[name], nil)
     end
@@ -834,8 +819,6 @@ function UI:_buildHub()
             self:Notify("Settings", "Settings reset to default.", 3, { Type = "Warning" })
         end,
     })
-
-    -- Keybinds
     self:_sectionLabel(pages.Keybinds, "CONTROLS")
     self:_sectionLabel(pages.Keybinds, "RESERVED (W A S D F G B Q)")
     create("TextLabel", {
@@ -844,11 +827,11 @@ function UI:_buildHub()
         TextColor3 = PX.dim, TextSize = 11, Font = FONT_BODY, TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
     }, pages.Keybinds)
-    for _, item in ipairs(KEYBIND_ORDER) do self:_makeKeybind(pages.Keybinds, item[1], item[2]) end
+    for _, item in ipairs(KEYBIND_ORDER) do
+        self:_makeKeybind(pages.Keybinds, item[1], item[2])
+    end
     self:_sectionLabel(pages.Keybinds, "NOTE")
     self:_infoCard(pages.Keybinds, "RIGHT SHIFT", "Reserved for opening/closing the hub.", 60)
-
-    -- Miscs
     self:_sectionLabel(pages.Miscs, "FLING / MOVEMENT")
     for _, name in ipairs({ "Anti Fling / Anti Void", "Enable Walkfling", "No Block Animation", "No Animations At All" }) do
         self:_makeToggle(pages.Miscs, name, self.State[name], function(value)
@@ -862,12 +845,12 @@ function UI:_buildHub()
     self:_sectionLabel(pages.Miscs, "ACTIONS")
     self:CreateButton(pages.Miscs, {
         Text = "FLING CURRENT TARGET", Size = UDim2.new(1, 0, 0, 48), BackgroundColor3 = PX.bgLight,
-        TextColor3 = PX.bad, TextSize = 14, Font = FONT_UI, StrokeColor = PX.bad, StrokeThickness = 2,
+        TextColor3 = PX.bad, TextSize = 14, Font = FONT_UI, StrokeColor = PX.bad, StrokeThickness = 1,
         Callback = function() if type(self.Options.OnFling) == "function" then pcall(self.Options.OnFling, self) end end,
     })
     self:CreateButton(pages.Miscs, {
         Text = "FORCE RESPAWN", Size = UDim2.new(1, 0, 0, 48), BackgroundColor3 = PX.bgLight,
-        TextColor3 = PX.warn, TextSize = 14, Font = FONT_UI, StrokeColor = PX.warn, StrokeThickness = 2,
+        TextColor3 = PX.warn, TextSize = 14, Font = FONT_UI, StrokeColor = PX.warn, StrokeThickness = 1,
         Callback = function()
             local confirmed = self:ShowConfirmation("ARE YOU SURE?", "Force respawn your character?", "CANCEL", "FORCE RESPAWN", PX.warn)
             if confirmed and type(self.Options.OnRespawn) == "function" then pcall(self.Options.OnRespawn, self) end
@@ -885,8 +868,6 @@ function UI:_buildHub()
             self:Notify("Settings", ok and "Miscs settings saved." or "Miscs settings could not be saved.", 2, { Type = ok and "Success" or "Error" })
         end,
     })
-
-    -- Support
     self:_sectionLabel(pages.Support, "SUPPORT")
     self:_infoCard(pages.Support, self.Options.Support.HelpTitle, self.Options.Support.HelpDescription)
     self:CreateButton(pages.Support, {
@@ -915,11 +896,21 @@ function UI:_buildHub()
                 local result = self.Options.OnFeedback(feedbackBox.Text, self)
                 if result ~= false then
                     feedbackBox.Text = ""
-                    self:Notify("Feedback", "Feedback sent!", 3, { Type = "Success" })
+                    self:Notify("Feedback", "Feedback saved.", 3, { Type = "Success" })
                 end
-            else
-                self:Notify("Feedback", "Feedback callback is not configured.", 3, { Type = "Warning" })
+                return
             end
+            self:Notify("Feedback", "Feedback callback is not configured.", 3, { Type = "Warning" })
+        end,
+    })
+
+    self:_sectionLabel(pages.Support, "SCRIPT UPDATE")
+    self:_infoCard(pages.Support, "FOUND A BROKEN FEATURE?", "Open the update request form and describe exactly what is broken and what should happen instead.", 76)
+    self:CreateButton(pages.Support, {
+        Text = "REQUEST SCRIPT TO BE UPDATED", Size = UDim2.new(1, 0, 0, 52), BackgroundColor3 = PX.bgLight,
+        TextColor3 = PX.warn, TextSize = 14, Font = FONT_TITLE, StrokeColor = PX.warn,
+        Callback = function()
+            self:ShowUpdateRequestForm()
         end,
     })
 
@@ -947,8 +938,6 @@ function UI:_buildHub()
             selectPage(name)
         end))
     end
-
-    -- Drag
     do
         local dragging = false
         local dragStart: Vector2?
@@ -970,8 +959,6 @@ function UI:_buildHub()
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
         end))
     end
-
-    -- Resize grip
     do
         local handle = create("TextButton", {
             Size = UDim2.fromOffset(24, 24), Position = UDim2.new(1, -24, 1, -24),
@@ -1046,7 +1033,7 @@ function UI:CreateHUD(options)
         Size = UDim2.fromOffset(580, 52), Position = UDim2.new(0.5, -290, 0, 18),
         BackgroundColor3 = PX.bg, BackgroundTransparency = 0.08, BorderSizePixel = 0,
     }, gui)
-    create("UIStroke", { Color = PX.line, Thickness = 2 }, frame)
+    create("UIStroke", { Color = PX.line, Thickness = 1 }, frame)
     create("Frame", { Size = UDim2.new(0, 4, 1, -20), Position = UDim2.new(0, 8, 0, 10), BackgroundColor3 = PX.accent, BorderSizePixel = 0 }, frame)
     local nameLabel = create("TextLabel", {
         Size = UDim2.fromOffset(210, 52), Position = UDim2.fromOffset(22, 0), BackgroundTransparency = 1,
@@ -1090,6 +1077,12 @@ function UI:UpdateHUD(data)
     end
 end
 
+function UI:SetStatsSidebarVisible(visible)
+    if self.StatsGui then
+        self.StatsGui.Enabled = visible == true
+    end
+end
+
 function UI:CreateStatsSidebar(options)
     options = options or {}
     if self.StatsGui and self.StatsGui.Parent then self.StatsGui:Destroy() end
@@ -1105,7 +1098,7 @@ function UI:CreateStatsSidebar(options)
         Size = UDim2.fromOffset(156, 122), Position = UDim2.new(1, -172, 1, -138),
         BackgroundColor3 = PX.bg, BackgroundTransparency = 0.08, BorderSizePixel = 0,
     }, gui)
-    create("UIStroke", { Color = PX.line, Thickness = 2 }, frame)
+    create("UIStroke", { Color = PX.line, Thickness = 1 }, frame)
 
     local values = {}
     local function makeRow(y, labelText)
@@ -1185,7 +1178,7 @@ function UI:ShowConfirmation(title, message, cancelText, confirmText, accentColo
     }, gui)
     create("UISizeConstraint", { MinSize = Vector2.new(420, 240), MaxSize = Vector2.new(600, 240) }, card)
     local color = accentColor or PX.bad
-    create("UIStroke", { Color = color, Thickness = 2 }, card)
+    create("UIStroke", { Color = color, Thickness = 1 }, card)
     create("Frame", { Size = UDim2.new(1, 0, 0, 4), BackgroundColor3 = color, BorderSizePixel = 0, ZIndex = 3 }, card)
     create("TextLabel", {
         Size = UDim2.new(1, -40, 0, 30), Position = UDim2.fromOffset(20, 18), BackgroundTransparency = 1,
@@ -1233,6 +1226,200 @@ function UI:ShowDiscordPrompt()
         "YES, JOIN",
         PX.accent
     )
+end
+
+function UI:ShowUpdateRequestForm()
+    if self._destroyed or self._updateRequestForm then return false end
+
+    local gui = create("ScreenGui", {
+        Name = "LarpingHubUpdateRequest",
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        DisplayOrder = self.Options.DisplayOrder + 1001,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    }, self.PlayerGui)
+    table.insert(self._ownedGuis, gui)
+
+    create("TextButton", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 0.35,
+        BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false,
+        Active = true,
+        ZIndex = 1,
+    }, gui)
+
+    local card = create("Frame", {
+        Size = UDim2.fromOffset(560, 430),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = PX.bg,
+        BorderSizePixel = 0,
+        ZIndex = 2,
+    }, gui)
+    create("UISizeConstraint", { MinSize = Vector2.new(500, 400), MaxSize = Vector2.new(760, 520) }, card)
+    create("UIStroke", { Color = PX.warn, Thickness = 1 }, card)
+
+    create("TextLabel", {
+        Size = UDim2.new(1, -40, 0, 28),
+        Position = UDim2.fromOffset(20, 18),
+        BackgroundTransparency = 1,
+        Text = "REQUEST SCRIPT TO BE UPDATED",
+        TextColor3 = PX.warn,
+        TextSize = 20,
+        Font = FONT_TITLE,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 3,
+    }, card)
+
+    create("TextLabel", {
+        Size = UDim2.new(1, -40, 0, 36),
+        Position = UDim2.fromOffset(20, 50),
+        BackgroundTransparency = 1,
+        Text = "Tell me what is broken, what you expected, and any useful details.",
+        TextColor3 = PX.dim,
+        TextSize = 12,
+        Font = FONT_BODY,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        ZIndex = 3,
+    }, card)
+
+    local function makeField(name, labelText, placeholderText, y, height)
+        create("TextLabel", {
+            Size = UDim2.new(1, -40, 0, 18),
+            Position = UDim2.fromOffset(20, y),
+            BackgroundTransparency = 1,
+            Text = labelText,
+            TextColor3 = PX.text,
+            TextSize = 12,
+            Font = FONT_TITLE,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 3,
+        }, card)
+        local box = create("TextBox", {
+            Name = name,
+            Size = UDim2.new(1, -40, 0, height),
+            Position = UDim2.fromOffset(20, y + 20),
+            BackgroundColor3 = PX.panel,
+            BorderSizePixel = 0,
+            Text = "",
+            PlaceholderText = placeholderText,
+            PlaceholderColor3 = PX.dim,
+            TextColor3 = PX.text,
+            TextSize = 12,
+            Font = FONT_BODY,
+            TextWrapped = true,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextYAlignment = Enum.TextYAlignment.Top,
+            ClearTextOnFocus = false,
+            MultiLine = true,
+            ZIndex = 3,
+        }, card)
+        create("UIPadding", {
+            PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8),
+            PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
+        }, box)
+        create("UIStroke", { Color = PX.lineSoft, Thickness = 1 }, box)
+        return box
+    end
+
+    local issueBox = makeField("IssueBox", "WHAT IS BROKEN?", "Example: sidebar buttons are behind the content area...", 94, 72)
+    local expectedBox = makeField("ExpectedBox", "WHAT SHOULD HAPPEN?", "Example: every sidebar tab should be clickable...", 190, 72)
+    local detailsBox = makeField("DetailsBox", "EXTRA DETAILS", "Device, executor, error text, screenshots or steps to reproduce...", 286, 62)
+
+    local row = create("Frame", {
+        Size = UDim2.new(1, -40, 0, 44),
+        Position = UDim2.new(0, 20, 1, -58),
+        BackgroundTransparency = 1,
+        ZIndex = 3,
+    }, card)
+    create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        HorizontalAlignment = Enum.HorizontalAlignment.Right,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        Padding = UDim.new(0, 10),
+    }, row)
+
+    local done = false
+    local submitted = false
+    self._updateRequestForm = { gui = gui }
+
+    self:CreateButton(row, {
+        Size = UDim2.fromOffset(130, 44),
+        Text = "CANCEL",
+        BackgroundColor3 = PX.bgLight,
+        TextColor3 = PX.text,
+        TextSize = 13,
+        Font = FONT_TITLE,
+        StrokeColor = PX.bgLight,
+        StrokeTransparency = 1,
+        Callback = function()
+            done = true
+        end,
+    })
+
+    self:CreateButton(row, {
+        Size = UDim2.fromOffset(220, 44),
+        Text = "SUBMIT UPDATE REQUEST",
+        BackgroundColor3 = PX.warn,
+        TextColor3 = PX.bg,
+        TextSize = 12,
+        Font = FONT_TITLE,
+        StrokeColor = PX.warn,
+        HoverColor = liftColor(PX.warn, 18),
+        Callback = function()
+            local payload = {
+                Issue = issueBox.Text,
+                Expected = expectedBox.Text,
+                Details = detailsBox.Text,
+            }
+            local issue = payload.Issue:gsub("%s+", "")
+            if issue == "" then
+                self:Notify("Update Request", "Describe what is broken first.", 3, { Type = "Warning" })
+                return
+            end
+            if type(self.Options.OnUpdateRequest) == "function" then
+                local ok, result = pcall(self.Options.OnUpdateRequest, payload, self)
+                if not ok then
+                    self:Notify("Update Request", "The update request callback failed.", 3, { Type = "Error" })
+                    return
+                end
+                if result == false then
+                    return
+                end
+            end
+            submitted = true
+            done = true
+        end,
+    })
+
+    self:_animateEntrance(card)
+
+    while not done and not self._destroyed do
+        task.wait()
+    end
+
+    if gui.Parent then gui:Destroy() end
+    self._updateRequestForm = nil
+
+    if submitted and not self._destroyed then
+        self:Notify("Update Request", "Request prepared successfully.", 4, { Type = "Success" })
+    end
+
+    return submitted
+end
+
+function UI:StopScript()
+    if self._destroyed or self._stopRequested then return end
+    self._stopRequested = true
+    if type(self.Options.OnStop) == "function" then
+        pcall(self.Options.OnStop, self)
+    end
+    self:Destroy()
 end
 
 function UI:BuildAll(options)
@@ -1372,11 +1559,25 @@ end
 function UI:Destroy()
     if self._destroyed then return end
     self._destroyed = true
-    for _, connection in ipairs(self._connections) do pcall(function() connection:Disconnect() end) end
+    for _, connection in ipairs(self._connections) do
+        pcall(function() connection:Disconnect() end)
+    end
     table.clear(self._connections)
-    if self._loading then pcall(function() self._loading:destroy() end); self._loading = nil end
-    if self._confirmModal and self._confirmModal.gui and self._confirmModal.gui.Parent then self._confirmModal.gui:Destroy() end
-    for _, gui in ipairs(self._ownedGuis) do if gui and gui.Parent then gui:Destroy() end end
+    if self._loading then
+        pcall(function() self._loading:destroy() end)
+        self._loading = nil
+    end
+    if self._confirmModal and self._confirmModal.gui and self._confirmModal.gui.Parent then
+        self._confirmModal.gui:Destroy()
+    end
+    if self._updateRequestForm and self._updateRequestForm.gui and self._updateRequestForm.gui.Parent then
+        self._updateRequestForm.gui:Destroy()
+    end
+    for _, gui in ipairs(self._ownedGuis) do
+        if gui and gui.Parent then
+            gui:Destroy()
+        end
+    end
     table.clear(self._ownedGuis)
     table.clear(self._notifications)
 end
